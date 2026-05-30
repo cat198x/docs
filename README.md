@@ -3,6 +3,10 @@
 Documentation for [Catalog198x](https://github.com/catalog198x), the binary-asset
 cataloguing tool.
 
+**Start here:** [`plan.md`](plan.md) — the rescue-and-evolve plan for turning the
+Romshelf rebuild into Catalog198x (rebrand → `assets/` integration → the
+TOSEC-PIX catalogue/verify/extract job).
+
 ## Scope
 
 - The **verification model** — how files are hashed and matched against reference
