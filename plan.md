@@ -43,9 +43,9 @@ inheriting it.
 A single, mechanical rename pass. Land it as the first commit(s) in
 `cat198x/cat198x` after migrating the rebuild in.
 
-- **Crate + binary**: `romshelf` → `cat198x`. (Open question below: the
-  binary name is long to type — decide on a short alias, e.g. `cat198`, before
-  this lands, since renaming a published binary later is disruptive.)
+- **Crate + binary**: `romshelf` → `cat198x`. (The "Catalog198x is too long"
+  concern that prompted this rename is already solved — `cat198x` is the short
+  name; no further alias needed.)
 - **Cargo.toml**: `name`, `description`, `repository` → `cat198x/cat198x`,
   `keywords`/`categories` tweaked (cataloguing, preservation, not just "mame").
 - **Data dir**: `~/.romshelf` → `~/.cat198x`; env vars `ROMSHELF_CONFIG` /
@@ -107,7 +107,6 @@ The first real job, and the one in flight (the downloads on the Time Capsule).
 - **Rebuild scope = rename + evolve** (ratifies the umbrella record's open
   question with this plan as the evidence).
 - **Data-dir migration** policy (`~/.romshelf` → `~/.cat198x`).
-- **Binary name** (full `cat198x` vs a short alias).
 - **The `assets/` library-layout contract** with Emu198x.
 - **Extraction routing rules** — which TOSEC-PIX categories go to `reference/`
   vs the Vault, and in what staged form.
@@ -115,7 +114,6 @@ The first real job, and the one in flight (the downloads on the Time Capsule).
 ## Out of scope / open questions
 
 - **No rewrite of the core.** Scanner, DB schema, plan/apply, quarantine stay.
-- **Binary name** — `cat198x` is correct-but-verbose; decide an alias.
 - **TOSEC-PIX DAT specifics** — verify archive-member hashing matches the PIX DAT
   before relying on verification (don't assume; test against a real PIX DAT).
 - **Extraction depth** — Phase 3's routing could stop at "stage the files for a
