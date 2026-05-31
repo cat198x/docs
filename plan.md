@@ -82,16 +82,27 @@ layout as a contract* and treating the assets library as the canonical collectio
 
 The first real job, and the one in flight (the downloads on the Time Capsule).
 
-1. **Verify** the TOSEC-PIX download against its TOSEC DAT. *To confirm against
-   the code:* TOSEC ships clrmamepro-format DATs, which Romshelf's `dat` parser
-   should already handle — but TOSEC-PIX entries are **scan archives** (manual,
-   box, and media scans), not ROMs, so confirm the scanner hashes archive
-   *members* the way the PIX DAT expects before trusting a green checkmark.
+**On disk (observed 2026-05-31, Time Capsule `/Volumes/Data/TOSEC-PIX/`):** ~54
+top-level dirs by manufacturer/system (3DO, Acorn, Amstrad, …), each already split
+into `Books` / `Magazines` / `Manuals` / `Newsletters` plus per-machine subfolders.
+**No DAT files are co-located** in the tree — it's the unpacked scan set, not a
+DAT-paired one.
+
+1. **Fetch the DATs, then verify.** Because the scan set has no DATs alongside it,
+   first pull the matching TOSEC-PIX DAT pack (Romshelf's `fetch`/`dat`), then
+   verify against it. *To confirm against the code:* TOSEC ships clrmamepro-format
+   DATs, which Romshelf's `dat` parser should already handle — but TOSEC-PIX
+   entries are **scan archives** (manual, box, and media scans), not ROMs, so
+   confirm the scanner hashes archive *members* the way the PIX DAT expects before
+   trusting a green checkmark.
 2. **Catalogue**: `status`/`stats` give the completeness picture — what's
    verified, duplicated, missing.
 3. **Extract source material** — the novel, 198x-specific capability, and the
    reason TOSEC-PIX matters to the family. PIX is scanned manuals, magazines,
-   box art, and adverts. Cat198x should **route** verified items by kind:
+   box art, and adverts — and, helpfully, the set is **already categorised by
+   `Books`/`Magazines`/`Manuals`/`Newsletters` per system**, so routing can key
+   off the existing folder structure rather than classify from scratch. Cat198x
+   should **route** verified items by kind:
    - **Manuals / magazines / datasheets** → staged for the `reference/`
      ingestion pipeline (then docling-extracted — this closes the loop with the
      reference-library work).
