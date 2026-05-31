@@ -18,6 +18,22 @@ record ([`cat198x-asset-tooling.md`](../../decisions/cat198x-asset-tooling.md)):
 the answer is **rename + evolve, not rewrite**. The ~16k-LoC rebuild is good and
 stays. Any from-scratch replacement of a subsystem must be justified here first.
 
+## Next step (status 2026-05-31)
+
+The org and its repos exist — `cat198x/.github`, `cat198x/docs` (this one), and an
+**empty** flagship `cat198x/cat198x`. No tool code has moved yet.
+
+**The immediate next action is yours, in a Cat198x session:** migrate the Romshelf
+rebuild (`~/Projects/ROMShelf/romshelf`, ~16k LoC, currently unpushed) into the
+flagship — `git remote add` + push, or move the working copy into
+`198x/Cat198x/cat198x/`. Once it's landed, **Phase 1 (rebrand)** below is the first
+work, and it's mechanical.
+
+Everything from "What we're starting from" onward assumes the rebuild is in place.
+The TOSEC-PIX scans are already staged on the Time Capsule
+(`/Volumes/Data/TOSEC-PIX/`, ~564 GB) and scoped in Phase 3 — but that work sits on
+Phases 1–2, so it isn't the next thing to touch.
+
 ## What we're starting from (the rescue asset)
 
 Romshelf, at `~/Projects/ROMShelf/romshelf` — a single-crate Rust CLI (edition
