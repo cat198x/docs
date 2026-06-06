@@ -35,6 +35,11 @@ Landed on branch `feat/layout-engine`, in order, each its own tested commit:
   hierarchy, else a *reported* skip (no more silent skip).
 - **`Q2` ✅ (already existed)** the destination free-space guard is already in the
   executor (`executor.rs`, 10% margin) — roadmap item was stale; not redone.
+- **CLI ✅** `config set-default <key> <value>` sets the file-level defaults
+  (`dest_path`/`output_format`/`merge_mode`), so `default_dest_path` no longer
+  needs hand-editing.
+- **End-to-end ✅** one integration test composes the whole chain: recursive add
+  → `set-default` → plan lands the ROM at `<default>/<hierarchy>/<rom>`.
 
 The layout engine is functionally complete for the loose sets. Remaining:
 **`M0`** (canonical DAT source — needs Steve's decision) and **`M4`** (live
