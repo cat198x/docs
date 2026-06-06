@@ -56,6 +56,26 @@ the AFP mount).
   (canonical entry names, content-verified already-correct check, converges on
   re-run). Loose remains the default for the TOSEC sets.
 
+## Usability batch (2026-06-06, branch `feat/usability-batch`)
+
+Ten follow-ups, each its own tested commit:
+
+- **U1** `config get-default` + defaults shown in `config list`.
+- **U2** `doctor` points at `dat relink` when DAT files are missing.
+- **U3** `plan` writes the skipped (no-destination) collections to a file.
+- **U4** `stats --group-by system|set` (was the boolean `--group`).
+- **U5** `plan` prints a per-set breakdown of pending operations.
+- **U6** archive already-correct check also verifies the container format
+  (a content-correct plain ZIP no longer satisfies a TorrentZIP target). *Noted:
+  cat198x's TorrentZIP still omits the canonical `TORRENTZIPPED` EOCD comment.*
+- **U7** `plan` trusts the catalogue instead of re-hashing each destination file
+  over the network — the in-place plan no longer re-reads the whole library.
+- **U8** `plan --move` for a true in-place tidy (relocate, not duplicate), plus
+  `unknowns` — a read-only report of files matched by no active DAT. *Auto-
+  quarantine of unknowns deliberately deferred: it would sweep DAT-less folders.*
+- **U9** `dat sort` nests a flat DAT pack by collection name (`" - "`-segmented).
+- **U10** `7z` output format (native via sevenz-rust2).
+
 ## Baseline (in flight, not a roadmap item)
 
 The completing scan is running; once done, load the missing TOSEC-main + TOSEC-ISO
