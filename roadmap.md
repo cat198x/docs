@@ -197,6 +197,25 @@ must stay correct under concurrency (both are per-op and independent, so this is
 a bounded-worker fan-out, not a redesign); keep the disk-space guard and the
 move-mode source deletion intact. Surfaced driving the live reorg. **Size:** M.
 
+### Q6 — WHDLoad layout + extract convergence  *(deferred — surfaced in live reorg)*
+
+Two linked WHDLoad issues found retrying the reorg's repack stragglers:
+
+1. **Dest drops the category level.** WHDLoad collections are registered from the
+   category subdirs (`WHDLoad - Applications`, `…- Cracktros`, `…- Demos`,
+   `…- Games-*`), but the planned dest lands the extracted `.lha` *flat at the
+   WHDLoad root* (`WHDLoad/<rom>.lha`) — the per-category level isn't applied, so
+   all categories pile into one directory (unlike TOSEC/PIX, which keep their
+   deep hierarchy). Decide the intended WHDLoad layout (likely
+   `WHDLoad/<category>/<rom>.lha`) and fix the hierarchy resolution for it.
+2. **Extracts don't converge.** Those `.lha` are extracted from their `.zip`
+   wrappers to the WHDLoad root, but the root isn't a registered source (only the
+   category subdirs are), so the apply-time catalogue-sync can't record the loose
+   copy at its dest — every re-plan re-lists the ~2,983 extract-moves. Non-
+   destructive (idempotent re-extraction, source kept) but never clears. Fixing
+   (1) likely fixes (2); otherwise register the dest root (or the whole
+   `Library/ROMs`) as a source so placed files catalogue and converge. **Size:** M.
+
 ## Dependency view
 
 ```
