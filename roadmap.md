@@ -1,24 +1,75 @@
 # Roadmap: from verifier to reorganiser
 
-**Status:** Draft, 2026-06-06. Sequences the work surfaced while driving the live
-TOSEC cataloguing job. Design detail for the layout engine lives in
-[`reorganise-layout-engine.md`](reorganise-layout-engine.md); this doc is the
-**order, dependencies, and acceptance** across all of it.
+**Status:** Updated 2026-06-09. The reorganiser is **built and the TOSEC reorg
+is executed** — not just planned. The critical path (`M0`–`M4`) and the quality
+items (`Q1`–`Q4`) all landed, and ~417,500 operations ran live against the AFP
+volume to assemble `Library/ROMs/{TOSEC,TOSEC-ISO,TOSEC-PIX,WHDLoad}`. What
+remains is the **arcade phase** (the 359 GB `ToSort/` input) plus two polish
+items surfaced by the live run: `Q5` (parallelise `apply`, recommended before
+arcade) and `Q6` (WHDLoad layout/convergence, deferred). Design detail for the
+layout engine lives in [`reorganise-layout-engine.md`](reorganise-layout-engine.md);
+this doc is the **order, dependencies, and acceptance** across all of it.
 
 ## Bottom line
 
-Cat198x already does the *analysis* half of the mission (inventory, verify,
-completeness). The gap is the *reorganise* half — a cohesive hierarchical tidy.
-Five milestones (`M0`–`M4`) form the **critical path** to that, in strict order.
-Four quality items (`Q1`–`Q4`) are smaller and mostly parallel; two of them
-(`Q1`, `Q2`) are sequenced into the path because they de-risk it cheaply.
+Both halves of the mission now work: Cat198x does the *analysis* (inventory,
+verify, completeness) **and** the *reorganise* — a cohesive hierarchical tidy,
+proven by executing it across 482,182 catalogued files. The original goal (an
+in-place tidy of the TOSEC sets) is **delivered**. The remaining roadmap is
+forward work: the arcade romsets, and the two efficiency/layout items the live
+reorg exposed.
 
-Recommended order: **`Q1` → `M0` → `M1` → `M2` (+`Q2`) → `M3` → `M4`**, with `Q3`
-shippable anytime as a quick analysis win and `Q4` deferred.
+Each milestone was one PR's worth of work: builds clean, tests at the right
+level, lands on its own branch in the flagship `cat198x/cat198x` repo. Standard
+cadence — one change per commit, no skipped tests.
 
-Each milestone is one PR's worth of work: builds clean, tests at the right level,
-lands on its own branch in the flagship `cat198x/cat198x` repo. Standard cadence —
-one change per commit, no skipped tests.
+## Reorg executed (2026-06-07 → 09)
+
+The plan was not just dry-run — it was **applied**. ~417,500 operations ran live
+against the AFP-mounted Time Capsule (`/Volumes/Data`) to build
+`Library/ROMs/{TOSEC,TOSEC-ISO,TOSEC-PIX,WHDLoad}` from 482,182 catalogued files,
+in three resumable passes:
+
+- **Pass 1 — 302,214 ✓.** Renames, relocates, loose moves, and dedups (the
+  metadata-cheap operations, ~25–40 ops/s over AFP).
+- **Pass 2 — 112,250 ✓, 81 failed.** Repacks (read-entry + recompress + write +
+  verify, ~3 ops/s — latency-bound, ~10h for ~11 GB). The 81 failures were
+  duplicate-entry-name collisions.
+- **Pass 2b — 3,062 ✓, 1 failed.** Retried the 81 (all built once repack
+  de-duplicated source entry names) plus follow-on work. The single straggler
+  was a CP437-encoded archive entry name (`å`), now fixed.
+
+**Lesson — latency dominates, not bytes.** Over a network mount the per-operation
+round trip is the cost; the whole effort was tuned around that (renames over
+copies, trust the catalogue, defer/parallelise repacks). Captured in the KB:
+*Large ROM reorg over a network mount*.
+
+Fixes that landed **mid-run**, each its own tested commit, as the live apply
+exposed them:
+
+- **`1c93afa`** apply keeps the catalogue in step per-op — so a re-plan converges
+  with no re-scan, and a retry resumes instead of re-listing.
+- **`ce9276c`** resumable partial plans + `--skip-repack` (defer the slow pass).
+- **`5d8c6a1`** repack loose files into archives instead of renaming them to
+  `.zip`; **`0785e04`** move-mode repack deletes its loose sources, reversibly.
+- **`1f75a2b`** same-filesystem loose move renames without re-hashing — the
+  single biggest AFP win (no full read-back of every ROM).
+- **`7407d03`** quarantine store configurable, default on-volume (a cross-device
+  byte-copy had been filling the local disk).
+- **`5844321`** delete exact-content duplicates instead of quarantining them.
+- **`7204e2a`** `truncate_path` no longer panics on multi-byte UTF-8 paths
+  (crashed pass 1 at op 4,721 on `Año`).
+- **`872749a`** content shared across entries is copied to each game, never
+  consumed; **`0a21ad1`** a container sourcing multiple games is repacked
+  per-game, never relocated/deleted whole (stranding siblings).
+- **`9c6f678`** repack collapses duplicate entry names instead of aborting
+  (cleared the 80 pass-2 failures).
+- **`d4a7f11`** ZIP entry lookup finds CP437-encoded (non-UTF8-flag) names by
+  decoded `name()` rather than the `zip` crate's inconsistent `by_name` map
+  (cleared the last straggler — the `å` `.lha`).
+
+`ToSort/` still holds ~359 GB — the arcade-phase input (MAME / FinalBurn Neo /
+Demul / Raine + WOS-Archive + misc), the next major reorg.
 
 ## Progress (2026-06-06)
 
@@ -76,14 +127,19 @@ Ten follow-ups, each its own tested commit:
 - **U9** `dat sort` nests a flat DAT pack by collection name (`" - "`-segmented).
 - **U10** `7z` output format (native via sevenz-rust2).
 
-## Baseline (in flight, not a roadmap item)
+## Baseline (done — not a roadmap item)
 
-The completing scan is running; once done, load the missing TOSEC-main + TOSEC-ISO
-DATs and produce `status`/`stats`/`export`. That delivers the analysis goal and
-gives every milestone below a complete catalogue to work against. Nothing in the
-roadmap blocks it.
+The completing scan finished and the full TOSEC-main + TOSEC-ISO + PIX + WHDLoad
+catalogue (482,182 files) was the inventory every milestone ran against. The
+analysis deliverable (`status`/`stats`/`export`) works on that complete catalogue.
 
-## Critical path
+## Critical path  *(all executed — `M0`–`M4` ✅)*
+
+> **Done.** Every milestone below shipped and then *ran* against the live
+> library. `M0` was decided (A: nested `DatRoot`, path-relative), `M1`–`M3` built
+> the hierarchy/destination engine, and `M4` drove it past dry-run into the real
+> apply documented in *Reorg executed* above. The descriptions are kept as the
+> design record; the acceptance criteria were met in production.
 
 ### M0 — Canonical DAT source for hierarchy  *(decision + setup)*
 
@@ -139,7 +195,7 @@ reported count** (replacing today's silent skip at `generator.rs:85`).
 **Depends on:** `M2`. **Acceptance:** one `config set <set> base_dest …` covers
 every collection in the set; the plan summary names any skipped. **Size:** S–M.
 
-### M4 — Drive the in-place tidy to dry-run  *(the payoff)*
+### M4 — Drive the in-place tidy (dry-run → executed)  *(the payoff)*
 
 Rebuild registrations from the canonical source (remove + add — cheap, leaves the
 scanned inventory untouched), set each set's `base_dest` to its existing root,
@@ -220,15 +276,27 @@ Two linked WHDLoad issues found retrying the reorg's repack stragglers:
 
 ```
 Q1 ─┐
-     ├─> M0 ─> M1 ─> M2 ─> M3 ─> M4   (critical path to reorg)
+     ├─> M0 ─> M1 ─> M2 ─> M3 ─> M4   ✅ executed (TOSEC reorg done)
 Q2 ──────────────────┘ (folded in)
-Q3   (independent — analysis quality, anytime)
-Q4   (deferred — hygiene)
+Q3   ✅  Q4 ✅
+Q5   ── recommended before the arcade phase (parallelise apply)
+Q6   ── deferred (WHDLoad layout + extract convergence)
+arcade phase  ── next major reorg (ToSort/ ~359 GB), benefits from Q5
 ```
 
-## What unblocks the user's original goal
+## Original goal: delivered — what's next
 
-The in-place tidy you asked for is `M4`, and it cannot start before `M1`–`M3`.
-Everything before that is either already working (analysis) or prerequisite
-plumbing. The fastest honest route to a reviewable reorg dry-run is the critical
-path above, with `Q1` done first so the catalogue rebuild is clean.
+The in-place tidy you asked for was `M4`, and it ran: the TOSEC/ISO/PIX/WHDLoad
+sets are reorganised in place, ~417,500 operations applied and verified. The
+forward path is:
+
+1. **`Q5` — parallelise `apply`.** The arcade romsets are overwhelmingly
+   multi-ROM containers, so they generate far more repacks than TOSEC. At the
+   current ~3 repacks/s that would dominate wall-clock; bounded-concurrent
+   repacks should cut it to well under an hour. Recommended **before** the arcade
+   phase.
+2. **Arcade phase.** Reorganise `ToSort/` (~359 GB: MAME / FinalBurn Neo / Demul
+   / Raine + WOS-Archive) into `Library/ROMs`. The reorg engine is proven; this
+   is mostly input scale and the repack volume `Q5` addresses.
+3. **`Q6` — WHDLoad layout + convergence.** Tidy the deferred WHDLoad
+   category-level layout and the non-converging extract re-list. Non-blocking.
