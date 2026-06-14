@@ -1,37 +1,92 @@
 # Roadmap: from verifier to reorganiser
 
-**Status:** Updated 2026-06-13. The reorganiser is **built and the TOSEC reorg
-is executed** — not just planned. The critical path (`M0`–`M4`) and the quality
-items (`Q1`–`Q5`) all landed, and ~417,500 operations ran live against the AFP
-volume to assemble `Library/ROMs/{TOSEC,TOSEC-ISO,TOSEC-PIX,WHDLoad}`. The
-**arcade phase** is in progress: CHD support shipped, but `plan` is **blocked**
-on a planner-performance bug at arcade scale (`Q7` below) — it hangs on large
-*merged* sets (FBNeo Arcade, MAME ROMs merged). Also open: `Q6` (WHDLoad
-layout/convergence, deferred). Design detail for the layout engine lives in
+**Status:** Updated 2026-06-14. The reorganiser is **built and the TOSEC reorg
+is executed**. The critical path (`M0`–`M4`) and quality items (`Q1`–`Q7`) all
+landed. The **arcade phase is paused mid-flight**, deliberately: every *code*
+blocker is fixed and merged (see below), but the arcade *data* reorg cannot be
+finished until a **merge-mode feature** exists and the **Time Capsule is stable
+with headroom**. Nothing is lost — see "Arcade phase — paused" for the exact
+state and resume path. Design detail for the layout engine lives in
 [`reorganise-layout-engine.md`](reorganise-layout-engine.md); this doc is the
 **order, dependencies, and acceptance** across all of it.
 
-## Arcade phase — status (2026-06-13)
+## Arcade phase — paused (2026-06-14)
 
 Scanned and catalogued into `~/.cat198x`: MAME (ROMs/Extras/Multimedia + CHDs),
 the **MAME 0.288 Software List** set (712 collections, 234,485 entries), Demul,
-Raine, FinalBurn Neo. **CHD support landed** (commits `2bdfd7a`, `7ccf228`,
-`c6cdd9a`, `b5cfa9c` on `main`): the DAT parser reads `<disk>` elements, the
-scanner identifies a `.chd` by its **internal header SHA1** (CHD v5, header
-offset 84) — read from the header only, never the multi-GB body — and the
-planner stores CHDs **loose** at `<dest>/<game>/<name>.chd`, never packed.
-Verified: 209 CHDs matched (MAME 103 + Demul 106) and the partial plan placed
-them correctly (`106 CHD(s)… to move`). Also fixed: `fix(scan)` so numeric
-`--source` ids select exactly (`c6bdd88`).
+Raine, FinalBurn Neo. **CHD support landed** (`2bdfd7a`, `7ccf228`, `c6cdd9a`,
+`b5cfa9c`): the DAT parser reads `<disk>` elements; the scanner identifies a
+`.chd` by its **internal header SHA1** (CHD v5, offset 84, header only); the
+planner stores CHDs **loose** at `<dest>/<game>/<name>.chd`.
 
-**Blocker (`Q7`).** A full `--move` plan over the arcade sets ran ~2h23m and
-hung on **`FinalBurn Neo - Arcade Games`** (100 min CPU, then AFP I/O wait,
-never returned). The upfront scan reported **86,911 shared contents** and
-**103,802 containers sourcing multiple games** — merged arcade sets share ROMs
-wall-to-wall (Neo-Geo BIOS, CPS clones). The archive branch's per-game
-container-completeness check (`is_complete` × candidate containers) goes
-quadratic at that scale. Small sets plan fine (`32x`, `Demul`); the big merged
-sets do not. **Next session: fix `Q7` before re-running the arcade plan.**
+### Code blockers — all fixed and merged (five PRs)
+
+| PR | Fix |
+|----|-----|
+| #8 | **`Q7` planner performance.** `files(crc32,size)` index (CRC-only arcade DATs were full-scanning the files table per ROM); completeness resolved by set-membership + rarest-entry instead of an `O(games×containers×entries)` scan; a memory guard skips meta-aggregates like `all_non-zipped_content` (62M match-rows). FinalBurn Neo: never-finished → 38s; full arcade plan → 74s. |
+| #9 | **CHD copy verification.** A CHD is catalogued by its internal header SHA1; `execute_copy` was verifying the file-byte hash, so every shared-CHD copy failed. Now verifies `.chd` via `read_chd_sha1`. |
+| #10 | **`prune-empty`** command — clears empty source dirs a `--move` tidy leaves (only `fs::remove_dir`). |
+| #11 | **`apply --prune-empty`** — self-cleans at end of run. |
+| #12 | **`Q6` convergence (`catalogue-placements`) + dedup guard.** The library dest wasn't a registered source, so the apply-time sync dropped placements and every re-plan re-listed (and would re-transfer) them. `catalogue-placements` registers the library and backfills placements from a completed plan's op-log (no re-hashing); afterwards re-plans converge and future applies record their own placements. **Critical dedup guard:** with the library catalogued, the move-mode dedup cross-deleted placed files for merged-set parent/clone-shared ROMs (one DAT game → flagged not-shared → 4.6M deletes, 99.99% under `Library/ROMs`). The guard never deletes a file under a destination root. |
+
+### Two non-code blockers stop the data reorg
+
+1. **`merge_mode` is unimplemented in the planner.** `generator.rs` never reads
+   `merge_mode`; `PlanOptions` has no merge field (it's used only by `status`).
+   Placement is "whatever ROMs the DAT lists per game" + output format. The MAME
+   DAT is *merged* (clones carry inherited ROMs with merge tags), so the planner
+   places them per-clone — i.e. **non-merged**, regardless of config. Combined
+   with `output_format = loose`, the apply *extracts* ROMs out of the compressed
+   `ToSort` zips into loose files and *duplicates* inherited ROMs across every
+   clone, while the source zips can't be deleted (they hold other games). That
+   uncompress-and-duplicate is why ~175 GiB vanished placing sets that, as a
+   `--move`, should have cost ≈0. **To finish arcade sanely, the planner needs a
+   real merge-mode feature** — `split` (a clone's archive holds only its own
+   ROMs; inherited ones live in the parent) is the chosen target. It must filter
+   merge-tagged inherited ROMs out of clone placements. This is genuine MAME
+   merge-semantics work, scoped deliberately, not bolted on.
+
+2. **The Time Capsule drops its AFP connection** unpredictably (`os error 5`,
+   then a stale-mount cascade of `EACCES`/`ENOENT` on every op). It killed the
+   overnight apply (190,739 ✓ / 226,898 ✗) and the recovery apply (6,839 ✓ /
+   220,362 ✗) — **not load or a bug; the mount died.** A resilient resume loop
+   (`/tmp/cat198x-resume-loop.sh`: re-plan → apply, repeat; each round's
+   successes are recorded so progress accumulates with no re-transfer) handles
+   the drops, but the reorg can't complete until the TC is stable, and the
+   non-merged layout won't fit anyway (TC ~113 GiB free).
+
+### Exact state — safe, consistent, resumable
+
+- **No data lost.** Verify-before-delete held through both failed applies; every
+  failed op's source is intact in `ToSort/`. The placed library content is real
+  and verified.
+- **~197,650 ops placed and catalogued** (Demul + FinalBurn Neo + Raine + ~25%
+  of MAME), as **loose non-merged** — the layout we're moving away from.
+- **Catalogue:** `Library/ROMs` registered as source id 33; placements backfilled
+  via `catalogue-placements --plan 9dcee803`. Re-plans converge (~197,650
+  already-correct). Backups: `db.sqlite.bak-prechd-2026-06-13`,
+  `db.sqlite.bak-preq6-2026-06-14`.
+- **Dangerous plan quarantined:** `objects/plans/QUARANTINE-dangerous/ae13040e…`
+  (the pre-guard 4.6M-library-delete plan). Do not apply.
+
+### Resume path
+
+1. Decide arcade layout with TC capacity in hand (likely **zip + split**).
+2. Implement `split`/`merged` merge-mode in the planner (filter merge-tagged
+   inherited ROMs per clone; route to parent). New `Q8`.
+3. Reconsider the already-placed loose non-merged arcade content — re-plan to
+   the new layout will repack/replace it; budget space for the transition.
+4. Stabilise the TC (wired link / power-save / reboot), then drive the resilient
+   resume loop to completion.
+
+*(Historical `Q7` detail retained below for the record.)*
+
+## Arcade phase — original `Q7` blocker (2026-06-13, resolved by PR #8)
+
+The original hang: a full `--move` plan ran ~2h23m and stuck on
+**`FinalBurn Neo - Arcade Games`** (100 min CPU). The upfront scan reported
+**86,911 shared contents** and **103,802 containers sourcing multiple games**.
+Root causes and fixes are in PR #8 above.
 
 ## Bottom line
 
@@ -304,7 +359,11 @@ Two linked WHDLoad issues found retrying the reorg's repack stragglers:
    (1) likely fixes (2); otherwise register the dest root (or the whole
    `Library/ROMs`) as a source so placed files catalogue and converge. **Size:** M.
 
-### Q7 — Planner performance on merged arcade sets  *(BLOCKER — surfaced 2026-06-13)*
+### Q7 — Planner performance on merged arcade sets  *(✅ resolved 2026-06-14, PR #8)*
+
+> **Done.** Fixed by `files(crc32,size)` index + set-membership/rarest-entry
+> completeness + a meta-aggregate memory guard. FinalBurn Neo never-finished →
+> 38s; full arcade plan → 74s. Original analysis kept below.
 
 `plan` hangs on large *merged* arcade collections. A `--move` plan over the
 arcade sets ran 2h23m and never got past `FinalBurn Neo - Arcade Games` (100 min
@@ -322,6 +381,27 @@ once, so per-game completeness is a lookup, not a scan; and/or short-circuit the
 "complete container already at dest" case before the candidate scan. Likely also
 revisit `compute_shared_containers` cost. **Acceptance:** a full arcade `--move`
 plan completes in minutes. **Size:** M–L. **Do before re-running the arcade plan.**
+
+### Q8 — Merge-mode in the planner  *(BLOCKER for finishing arcade — surfaced 2026-06-14)*
+
+The planner ignores `merge_mode` entirely (`generator.rs` never reads it;
+`PlanOptions` has no merge field — it's used only by `status`). It places
+whatever ROMs the DAT lists per game, so a *merged* MAME DAT (clones carry
+inherited ROMs with merge tags) is placed **non-merged**: every clone gets its
+own copy of the parent's shared ROMs. With `output_format = loose` this also
+*uncompresses* (extract from `ToSort` zips → loose files) and can't free the
+source zips (they hold other games) — together a massive storage blow-up
+(~175 GiB consumed where a `--move` should cost ≈0; the TC won't hold it).
+
+**Fix direction:** implement `split` (and `merged`) in the planner — thread
+`merge_mode` into `PlanOptions`/`generate_plan_filtered`, and for `split` exclude
+merge-tagged inherited ROMs from a clone's placement so a clone's archive holds
+only its own ROMs (inherited ones live in the parent). Pair with
+`output_format = zip`/`torrentzip` for arcade so the result is *smaller* than the
+`ToSort` input and the sources can be deleted. **Acceptance:** a `--set MAME
+--move` plan with `merge_mode = split` produces per-game archives with no
+inherited-ROM duplication, fitting in available space. **Size:** L. **Blocks
+re-running the arcade data reorg.**
 
 ## Dependency view
 
