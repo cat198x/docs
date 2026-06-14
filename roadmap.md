@@ -1,12 +1,13 @@
 # Roadmap: from verifier to reorganiser
 
 **Status:** Updated 2026-06-14. The reorganiser is **built and the TOSEC reorg
-is executed**. The critical path (`M0`–`M4`) and quality items (`Q1`–`Q7`) all
-landed. The **arcade phase is paused mid-flight**, deliberately: every *code*
-blocker is fixed and merged (see below), but the arcade *data* reorg cannot be
-finished until a **merge-mode feature** exists and the **Time Capsule is stable
-with headroom**. Nothing is lost — see "Arcade phase — paused" for the exact
-state and resume path. Design detail for the layout engine lives in
+is executed**. The critical path (`M0`–`M4`) and quality items (`Q1`–`Q8`) all
+landed — `Q8` (split merge-mode, PR #13) was the last code blocker. The **arcade
+phase is paused mid-flight**, deliberately: every *code* blocker is now fixed and
+merged (see below), and the remaining gate is operational — the **Time Capsule
+must be stable with headroom**, and the right **DAT variant** must be registered
+per the chosen per-set layout (MAME ships a DAT per format). Nothing is lost —
+see "Arcade phase — paused" for the exact state and resume path. Design detail for the layout engine lives in
 [`reorganise-layout-engine.md`](reorganise-layout-engine.md); this doc is the
 **order, dependencies, and acceptance** across all of it.
 
@@ -19,7 +20,7 @@ Raine, FinalBurn Neo. **CHD support landed** (`2bdfd7a`, `7ccf228`, `c6cdd9a`,
 `.chd` by its **internal header SHA1** (CHD v5, offset 84, header only); the
 planner stores CHDs **loose** at `<dest>/<game>/<name>.chd`.
 
-### Code blockers — all fixed and merged (five PRs)
+### Code blockers — all fixed and merged (six PRs)
 
 | PR | Fix |
 |----|-----|
@@ -28,32 +29,58 @@ planner stores CHDs **loose** at `<dest>/<game>/<name>.chd`.
 | #10 | **`prune-empty`** command — clears empty source dirs a `--move` tidy leaves (only `fs::remove_dir`). |
 | #11 | **`apply --prune-empty`** — self-cleans at end of run. |
 | #12 | **`Q6` convergence (`catalogue-placements`) + dedup guard.** The library dest wasn't a registered source, so the apply-time sync dropped placements and every re-plan re-listed (and would re-transfer) them. `catalogue-placements` registers the library and backfills placements from a completed plan's op-log (no re-hashing); afterwards re-plans converge and future applies record their own placements. **Critical dedup guard:** with the library catalogued, the move-mode dedup cross-deleted placed files for merged-set parent/clone-shared ROMs (one DAT game → flagged not-shared → 4.6M deletes, 99.99% under `Library/ROMs`). The guard never deletes a file under a destination root. |
+| #13 | **`Q8` split merge-mode in the planner.** `PlanOptions` gains `default_merge_mode`, resolved per collection like the output format (explicit → per-set → default), wired from config. `find_matched_roms` takes a `split` flag: it keeps a ROM only if its game is a parent or it carries no merge tag — the same rule `calculate_rom_requirements` uses for `status`, so placement and completeness now agree. Merged mode is reported and planned as non-merged (a larger change, deferred). Verified on the live catalogue: `FinalBurn Neo - ColecoVision Games` loose to a fresh dest planned 1,826 copies non-merged vs **1,636 split** — exactly the 190 merge-tagged clone ROMs filtered. |
 
-### Two non-code blockers stop the data reorg
+### `Q8` resolved — but it fixes FinalBurn Neo, not MAME
 
-1. **`merge_mode` is unimplemented in the planner.** `generator.rs` never reads
-   `merge_mode`; `PlanOptions` has no merge field (it's used only by `status`).
-   Placement is "whatever ROMs the DAT lists per game" + output format. The MAME
-   DAT is *merged* (clones carry inherited ROMs with merge tags), so the planner
-   places them per-clone — i.e. **non-merged**, regardless of config. Combined
-   with `output_format = loose`, the apply *extracts* ROMs out of the compressed
-   `ToSort` zips into loose files and *duplicates* inherited ROMs across every
-   clone, while the source zips can't be deleted (they hold other games). That
-   uncompress-and-duplicate is why ~175 GiB vanished placing sets that, as a
-   `--move`, should have cost ≈0. **To finish arcade sanely, the planner needs a
-   real merge-mode feature** — `split` (a clone's archive holds only its own
-   ROMs; inherited ones live in the parent) is the chosen target. It must filter
-   merge-tagged inherited ROMs out of clone placements. This is genuine MAME
-   merge-semantics work, scoped deliberately, not bolted on.
+`Q8` (PR #13) closes the merge-mode code gap. Trying it on the live catalogue
+corrected a wrong premise in the original blocker writeup, which is preserved
+struck-through below for the record.
 
-2. **The Time Capsule drops its AFP connection** unpredictably (`os error 5`,
-   then a stale-mount cascade of `EACCES`/`ENOENT` on every op). It killed the
-   overnight apply (190,739 ✓ / 226,898 ✗) and the recovery apply (6,839 ✓ /
-   220,362 ✗) — **not load or a bug; the mount died.** A resilient resume loop
-   (`/tmp/cat198x-resume-loop.sh`: re-plan → apply, repeat; each round's
-   successes are recorded so progress accumulates with no re-transfer) handles
-   the drops, but the reorg can't complete until the TC is stable, and the
-   non-merged layout won't fit anyway (TC ~113 GiB free).
+**The correction.** Split mode filters *merge-tagged inherited clone ROMs* out of
+clone placements. That data only exists in **FinalBurn Neo** (8,045 clones;
+66,894 merge-tagged ROMs — 50,878 in Arcade Games alone). The catalogue's MAME
+DAT — `MAME 0.283 ROMs (merged).xml`, registered as `MAME ROMs (merged)` — has
+**zero** `cloneof`/`romof`/`merge=` attributes across its 15,856 machines. It is a
+*truly* merged DAT: clones already folded into standalone parents. **Split is a
+no-op on MAME.**
+
+**Two independent axes, not one.** The arcade blowup conflated them:
+
+- **Merge axis (parent/clone)** — fixed by `Q8` split, applies to **FinalBurn
+  Neo**.
+- **Format axis (loose vs archive)** — the real **MAME** lever. Exploding merged
+  machine archives into loose files is what duplicates shared content and strands
+  source zips. The fix is `output_format = zip`, keeping each machine as one
+  archive.
+
+**MAME ships a DAT per layout.** MAME publishes separate *merged* / *split* /
+*non-merged* ROM DATs; the planner's `merge_mode` does **not** transform between
+them. A split MAME layout means **registering MAME's split DAT** (clones as their
+own machines with `cloneof`/`merge`) and *then* the `Q8` split filter has
+something to act on. With the merged DAT registered, the only honest layouts are
+merged-zip (one archive per parent, clones inside) or the loose explosion we're
+moving away from. **Pick the DAT variant per the target layout before planning,
+not after.**
+
+> ~~**`merge_mode` is unimplemented in the planner.** … The MAME DAT is *merged*
+> (clones carry inherited ROMs with merge tags), so the planner places them
+> per-clone … That uncompress-and-duplicate is why ~175 GiB vanished … the
+> planner needs a real merge-mode feature — `split` … is the chosen target.~~
+> *(Superseded: split is implemented in #13, and the MAME merged DAT carries no
+> clones for it to filter — see the correction above. The ~175 GiB loss was the
+> format axis, not the merge axis.)*
+
+### The remaining non-code blocker
+
+**The Time Capsule drops its AFP connection** unpredictably (`os error 5`,
+then a stale-mount cascade of `EACCES`/`ENOENT` on every op). It killed the
+overnight apply (190,739 ✓ / 226,898 ✗) and the recovery apply (6,839 ✓ /
+220,362 ✗) — **not load or a bug; the mount died.** A resilient resume loop
+(`/tmp/cat198x-resume-loop.sh`: re-plan → apply, repeat; each round's
+successes are recorded so progress accumulates with no re-transfer) handles
+the drops, but the reorg can't complete until the TC is stable, and the
+non-merged layout won't fit anyway (TC ~113 GiB free).
 
 ### Exact state — safe, consistent, resumable
 
@@ -71,12 +98,22 @@ planner stores CHDs **loose** at `<dest>/<game>/<name>.chd`.
 
 ### Resume path
 
-1. Decide arcade layout with TC capacity in hand (likely **zip + split**).
-2. Implement `split`/`merged` merge-mode in the planner (filter merge-tagged
-   inherited ROMs per clone; route to parent). New `Q8`.
-3. Reconsider the already-placed loose non-merged arcade content — re-plan to
+1. Decide arcade layout with TC capacity in hand (likely **zip**, per set):
+   merged-zip for MAME (one archive per parent), and zip + split for FinalBurn
+   Neo (the set with clones).
+2. **Register the DAT variant that matches the target layout** — *before*
+   planning, not after. MAME ships separate merged / split / non-merged ROM
+   DATs; the planner's `merge_mode` does not convert between them. The catalogue
+   currently holds MAME's *merged* DAT (no clones), so a split MAME layout needs
+   MAME's *split* DAT registered first. FinalBurn Neo's DAT already carries
+   clones, so `Q8` split applies to it as-is.
+3. ~~Implement `split`/`merged` merge-mode in the planner.~~ **Done — `Q8`,
+   PR #13.** Split filters merge-tagged inherited clone ROMs per clone; merged is
+   deferred. Set it with `config set <set> merge_mode split` (or
+   `config set-default merge_mode split`).
+4. Reconsider the already-placed loose non-merged arcade content — re-plan to
    the new layout will repack/replace it; budget space for the transition.
-4. Stabilise the TC (wired link / power-save / reboot), then drive the resilient
+5. Stabilise the TC (wired link / power-save / reboot), then drive the resilient
    resume loop to completion.
 
 *(Historical `Q7` detail retained below for the record.)*
